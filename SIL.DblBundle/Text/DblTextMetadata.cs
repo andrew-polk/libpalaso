@@ -126,8 +126,52 @@ namespace SIL.DblBundle.Text
 
 	public class DblMetadataCopyright
 	{
+		private DblMetadataCopyrightFullStatement _fullStatement;
+
+		/// <summary>
+		/// In version 1, the copyright information was stored in the statement element.
+		/// </summary>
 		[XmlElement("statement")]
-		public DblMetadataXhtmlContentNode Statement { get; set; }
+		public DblMetadataXhtmlContentNode Statement_XmlDeprecated
+		{
+			get { return null; }
+			set {
+				if (_fullStatement == null)
+					_fullStatement = new DblMetadataCopyrightFullStatement();
+				_fullStatement.StatementContent = new DblMetadataXhtmlContentNodeWithType(value);
+			}
+		}
+
+		/// <summary>
+		/// This is required to prevent a breaking change to the API after deprecating the statement attribute above.
+		/// </summary>
+		[XmlIgnore]
+		public DblMetadataXhtmlContentNode Statement
+		{
+			get { return new DblMetadataXhtmlContentNode(_fullStatement.StatementContent); }
+			set
+			{
+				if (_fullStatement == null)
+					_fullStatement = new DblMetadataCopyrightFullStatement();
+				_fullStatement.StatementContent = new DblMetadataXhtmlContentNodeWithType(value);
+			}
+		}
+
+		/// <summary>
+		/// Staring with version 2, the copyright information is stored in the fullStatement element.
+		/// </summary>
+		[XmlElement("fullStatement")]
+		public DblMetadataCopyrightFullStatement FullStatement
+		{
+			get { return _fullStatement; }
+			set { _fullStatement = value; }
+		}
+	}
+
+	public class DblMetadataCopyrightFullStatement
+	{
+		[XmlElement("statementContent")]
+		public DblMetadataXhtmlContentNodeWithType StatementContent { get; set; }
 	}
 
 	public class DblMetadataPromotion
@@ -139,17 +183,10 @@ namespace SIL.DblBundle.Text
 		public DblMetadataXhtmlContentNode PromoEmail { get; set; }
 	}
 
-	public class DblMetadataXhtmlContentNode
+	public abstract class DblMetadataXhtmlContentNodeBase
 	{
-		private string m_value;
-
-		public DblMetadataXhtmlContentNode()
-		{
-			ContentType = "xhtml";
-		}
-
-		[XmlAttribute("contentType")]
-		public string ContentType { get; set; }
+		private string _value;
+		protected string _contentType;
 
 		[XmlAnyElement]
 		public XmlNode[] InternalNodes { get; set; }
@@ -162,23 +199,23 @@ namespace SIL.DblBundle.Text
 		{
 			get
 			{
-				if (m_value == null)
+				if (_value == null)
 				{
 					var sb = new StringBuilder();
 					if (InternalNodes == null)
-						m_value = Text;
+						_value = Text;
 					else
 					{
 						foreach (var node in InternalNodes)
 							sb.Append(node.OuterXml);
-						m_value = sb.ToString();
+						_value = sb.ToString();
 					}
 				}
-				return m_value;
+				return _value;
 			}
 			set
 			{
-				m_value = value;
+				_value = value;
 				var doc = new XmlDocument();
 				string dummyXml = "<dummy>" + value + "</dummy>";
 				doc.LoadXml(dummyXml);
@@ -198,8 +235,55 @@ namespace SIL.DblBundle.Text
 		}
 	}
 
+	public class DblMetadataXhtmlContentNodeWithType : DblMetadataXhtmlContentNodeBase
+	{
+		public DblMetadataXhtmlContentNodeWithType()
+		{
+			_contentType = "xhtml";
+		}
+
+		public DblMetadataXhtmlContentNodeWithType(DblMetadataXhtmlContentNode dblMetadataXhtmlContentNode)
+		{
+			_contentType = dblMetadataXhtmlContentNode.ContentType;
+			Xhtml = dblMetadataXhtmlContentNode.Xhtml;
+		}
+
+		[XmlAttribute("type")]
+		public string Type
+		{
+			get { return _contentType; }
+			set { _contentType = value; }
+		}
+	}
+
+	public class DblMetadataXhtmlContentNode : DblMetadataXhtmlContentNodeBase
+	{
+		public DblMetadataXhtmlContentNode()
+		{
+			_contentType = "xhtml";
+		}
+
+		public DblMetadataXhtmlContentNode(DblMetadataXhtmlContentNodeWithType dblMetadataXhtmlContentNodeWithType)
+		{
+			_contentType = dblMetadataXhtmlContentNodeWithType.Type;
+			Xhtml = dblMetadataXhtmlContentNodeWithType.Xhtml;
+		}
+
+		[XmlAttribute("contentType")]
+		public string ContentType
+		{
+			get { return _contentType; }
+			set { _contentType = value; }
+		}
+	}
+
 	public class DblMetadataSystemId
 	{
+		private string _id;
+
+		/// <summary>
+		/// The type of systemId, e.g. paratext or tms
+		/// </summary>
 		[XmlAttribute("type")]
 		public string Type { get; set; }
 
@@ -207,8 +291,25 @@ namespace SIL.DblBundle.Text
 		[XmlAttribute("csetid")]
 		public string ChangeSetId { get; set; }
 
+		/// <summary>
+		/// In version 1 of the metadata, the ID was stored as the text node of the systemId node.
+		/// </summary>
 		[XmlText]
-		public string Id { get; set; }
+		public string Id_DeprecatedXml
+		{
+			get { return null; }
+			set { _id = value; }
+		}
+
+		/// <summary>
+		/// Starting with version 2 of the metadata, the ID is stored in an element.
+		/// </summary>
+		[XmlElement("id")]
+		public string Id
+		{
+			get { return _id; }
+			set { _id = value; }
+		}
 	}
 
 	public class DblMetadataArchiveStatus

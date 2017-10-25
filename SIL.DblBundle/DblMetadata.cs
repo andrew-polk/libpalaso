@@ -5,22 +5,117 @@ using SIL.Xml;
 
 namespace SIL.DblBundle
 {
+	/// <summary>
+	/// The root class for DBL Metadata which is stored as XML
+	/// </summary>
 	[XmlRoot("DBLMetadata")]
 	public class DblMetadata
 	{
+		private DblMetadataType _type;
+		private string _version;
+
 		[XmlAttribute("id")]
 		public string Id { get; set; }
 
+		/// <summary>
+		/// The type (e.g. text, audio) was stored here prior to version 2.0.
+		/// </summary>
 		[XmlAttribute("type")]
-		public string Type { get; set; }
+		public string Type_DeprecatedXml
+		{
+			get { return null; }
+			set {
+				if (_type == null)
+					_type = new DblMetadataType();
+				_type.Medium = value;
+			}
+		}
 
+		/// <summary>
+		/// This is required to prevent a breaking change to the API after deprecating the type attribute above.
+		/// </summary>
+		[XmlIgnore]
+		public string Type
+		{
+			get { return _type?.Medium; }
+			set
+			{
+				if (_type == null)
+					_type = new DblMetadataType();
+				_type.Medium = value;
+			}
+		}
+
+		/// <summary>
+		/// Used to store the type information starting with version 2.0.
+		/// </summary>
+		[XmlElement("type")]
+		public DblMetadataType TypeElement
+		{
+			get { return _type; }
+			set
+			{
+				// This is a hack to prevent the deserializer from setting
+				// a blank DblMetadataType when we already have one with content
+				// (set from Type_DeprecatedXml).
+				// Surprisingly, the deserializer will call set with a newly
+				// constructed DblMetadataType even if no type element exists.
+				// This seems to be only because the potential attribute and
+				// the potential element have the same name ("type").
+				if (value?.Medium != null && _type?.Medium == null)
+					_type = value;
+			}
+		}
+
+		/// <summary>
+		/// This was used to store the version number prior to 2.0.
+		/// </summary>
 		[XmlAttribute("typeVersion")]
-		public string TypeVersion { get; set; }
+		public string TypeVersion_DeprecatedXml
+		{
+			get { return null; }
+			set { _version = value; }
+		}
+
+		/// <summary>
+		/// This is required to prevent a breaking change to the API after deprecating the typeVersion attribute above.
+		/// </summary>
+		[XmlIgnore]
+		public string TypeVersion
+		{
+			get { return _version; }
+			set { _version = value; }
+		}
+
+		/// <summary>
+		/// This stores the version number starting with 2.0.
+		/// </summary>
+		[XmlAttribute("version")]
+		public string Version
+		{
+			get { return _version; }
+			set { _version = value; }
+		}
 
 		[XmlAttribute("revision")]
 		public int Revision { get; set; }
 
+		/// <summary>
+		/// Checks whether the metadata represents a bundle of type "text" (as opposed to audio, etc.)
+		/// </summary>
 		public bool IsTextReleaseBundle { get { return Type == "text"; } }
+	}
+
+	/// <summary>
+	/// Contains the type information for DBL Metadata
+	/// </summary>
+	public class DblMetadataType
+	{
+		/// <summary>
+		/// Type medium, e.g. text or audio
+		/// </summary>
+		[XmlElement("medium")]
+		public string Medium { get; set; }
 	}
 
 	/// <summary>
