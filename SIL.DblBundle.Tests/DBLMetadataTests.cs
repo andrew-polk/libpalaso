@@ -218,5 +218,13 @@ namespace SIL.DblBundle.Tests
 
 			AssertThatXmlIn.String(expectedResult).EqualsIgnoreWhitespace(metadata.GetAsXml());
 		}
+
+		[Test]
+		public void Deserialize_Serialize_Version1AndVersion2HaveSameResult()
+		{
+			var version1Result = _metadata.GetAsXml();
+			var version2Result = _metadata2.GetAsXml();
+			Assert.AreEqual(version1Result, version2Result, $"{version1Result}\n\nshould be the same as\n\n{version2Result}");
+		}
 	}
 }
