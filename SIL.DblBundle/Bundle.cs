@@ -1,6 +1,11 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
+using System.Linq.Expressions;
+using System.Xml;
+using System.Xml.Xsl;
 using L10NSharp;
+using SIL.DblBundle.Properties;
 using SIL.DblBundle.Text;
 using SIL.IO;
 using SIL.Reporting;
@@ -61,6 +66,10 @@ namespace SIL.DblBundle
 		private readonly TM m_dblMetadata;
 		protected readonly string m_pathToZippedBundle;
 		private string m_pathToUnzippedDirectory;
+		private Exception m_initialLoadException;
+		private bool m_tried2_1to1_5transform;
+		private bool m_tried2_0to1_5transform;
+		private string m_originalMetadataPath;
 
 		/// <summary>
 		/// Create a DBL Bundle
@@ -136,6 +145,8 @@ namespace SIL.DblBundle
 		#region Private methods
 		private TM LoadMetadata()
 		{
+			ResetForAnotherLoad();
+
 			const string filename = "metadata.xml";
 			string metadataPath = Path.Combine(m_pathToUnzippedDirectory, filename);
 
@@ -156,6 +167,12 @@ namespace SIL.DblBundle
 					Environment.NewLine + m_pathToZippedBundle);
 			}
 
+			m_originalMetadataPath = metadataPath;
+			return LoadMetadataInternal(metadataPath);
+		}
+
+		private TM LoadMetadataInternal(string metadataPath)
+		{
 			Exception exception;
 			var dblMetadata = DblMetadataBase<TL>.Load<TM>(metadataPath, out exception);
 			if (exception != null)
@@ -165,29 +182,88 @@ namespace SIL.DblBundle
 					out metadataBaseDeserializationError);
 				if (metadataBaseDeserializationError != null)
 				{
-					throw new ApplicationException(
-						LocalizationManager.GetString("DblBundle.MetadataInvalid",
-							"Unable to read metadata. File is not a valid Text Release Bundle:") +
-						Environment.NewLine + m_pathToZippedBundle, metadataBaseDeserializationError);
+					ThrowIfNoMoreOptions();
+					if (m_initialLoadException == null)
+					{
+						m_initialLoadException = new ApplicationException(
+							LocalizationManager.GetString("DblBundle.MetadataInvalid",
+								"Unable to read metadata. File is not a valid Text Release Bundle:") +
+							Environment.NewLine + m_pathToZippedBundle, metadataBaseDeserializationError);
+					}
+					return ConvertMetadataAndRetry();
 				}
 
-				throw new ApplicationException(
-					String.Format(LocalizationManager.GetString("DblBundle.MetadataInvalidVersion",
-						"Unable to read metadata. Type: {0}. Version: {1}. File is not a valid Text Release Bundle:"),
-						metadata.Type, metadata.TypeVersion) +
-					Environment.NewLine + m_pathToZippedBundle);
+				ThrowIfNoMoreOptions();
+				if (m_initialLoadException == null)
+				{
+					m_initialLoadException = new ApplicationException(
+						String.Format(LocalizationManager.GetString("DblBundle.MetadataInvalidVersion",
+								"Unable to read metadata. Type: {0}. Version: {1}. File is not a valid Text Release Bundle:"),
+							metadata.Type, metadata.TypeVersion) +
+						Environment.NewLine + m_pathToZippedBundle);
+				}
+				return ConvertMetadataAndRetry();
 			}
 
 			if (!dblMetadata.IsTextReleaseBundle)
 			{
-				throw new ApplicationException(
-					String.Format(LocalizationManager.GetString("DblBundle.NotTextReleaseBundle",
-						"This metadata in this bundle indicates that it is of type \"{0}\". Only Text Release Bundles are currently supported."),
-						dblMetadata.Type));
+				ThrowIfNoMoreOptions();
+				if (m_initialLoadException == null)
+				{
+					m_initialLoadException = new ApplicationException(
+						String.Format(LocalizationManager.GetString("DblBundle.NotTextReleaseBundle",
+								"This metadata in this bundle indicates that it is of type \"{0}\". Only Text Release Bundles are currently supported."),
+							dblMetadata.Type));
+				}
+				return ConvertMetadataAndRetry();
 			}
 
 			return dblMetadata;
 		}
+
+		private void ThrowIfNoMoreOptions()
+		{
+			if (m_tried2_1to1_5transform && m_tried2_0to1_5transform)
+				throw m_initialLoadException;
+		}
+
+		private TM ConvertMetadataAndRetry()
+		{
+			Debug.Assert(m_initialLoadException != null);
+			Debug.Assert(!m_tried2_1to1_5transform || !m_tried2_0to1_5transform);
+			try
+			{
+				using (var convertedMetadata = new TempFile())
+				{
+					var myXslTrans = new XslCompiledTransform();
+					if (!m_tried2_1to1_5transform)
+					{
+						myXslTrans.Load(new XmlTextReader(new StringReader(Resources.text_2_1_to_1_5_xsl)));
+						m_tried2_1to1_5transform = true;
+					}
+					else
+					{
+						myXslTrans.Load(new XmlTextReader(new StringReader(Resources.text_2_0_to_1_5_xsl)));
+						m_tried2_0to1_5transform = true;
+					}
+					myXslTrans.Transform(m_originalMetadataPath, convertedMetadata.Path);
+					return LoadMetadataInternal(convertedMetadata.Path);
+				}
+			}
+			catch (Exception e)
+			{
+				throw m_initialLoadException;
+			}
+		}
+
+		private void ResetForAnotherLoad()
+		{
+			m_originalMetadataPath = null;
+			m_initialLoadException = null;
+			m_tried2_1to1_5transform = false;
+			m_tried2_0to1_5transform = false;
+		}
+
 		#endregion
 
 		#region IDisposable Members
