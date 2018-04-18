@@ -1,6 +1,9 @@
 ﻿using System;
 using System.IO;
+using System.Xml;
+using System.Xml.Xsl;
 using L10NSharp;
+using SIL.DblBundle.Properties;
 using SIL.DblBundle.Text;
 using SIL.IO;
 using SIL.Reporting;
@@ -61,6 +64,7 @@ namespace SIL.DblBundle
 		private readonly TM m_dblMetadata;
 		protected readonly string m_pathToZippedBundle;
 		private string m_pathToUnzippedDirectory;
+		private Exception m_loadException;
 
 		/// <summary>
 		/// Create a DBL Bundle
@@ -156,6 +160,24 @@ namespace SIL.DblBundle
 					Environment.NewLine + m_pathToZippedBundle);
 			}
 
+			TM metadataData;
+			try
+			{
+				metadataPath = ConvertMetadataIfNecessary(metadataPath);
+				metadataData = LoadMetadataInternal(metadataPath);
+			}
+			catch (Exception e)
+			{
+				if (m_loadException != null)
+					throw m_loadException;
+				throw e;
+			}
+			File.Delete(metadataPath);
+			return metadataData;
+		}
+
+		private TM LoadMetadataInternal(string metadataPath)
+		{
 			Exception exception;
 			var dblMetadata = DblMetadataBase<TL>.Load<TM>(metadataPath, out exception);
 			if (exception != null)
@@ -173,7 +195,7 @@ namespace SIL.DblBundle
 
 				throw new ApplicationException(
 					String.Format(LocalizationManager.GetString("DblBundle.MetadataInvalidVersion",
-						"Unable to read metadata. Type: {0}. Version: {1}. File is not a valid Text Release Bundle:"),
+							"Unable to read metadata. Type: {0}. Version: {1}. File is not a valid Text Release Bundle:"),
 						metadata.Type, metadata.TypeVersion) +
 					Environment.NewLine + m_pathToZippedBundle);
 			}
@@ -182,12 +204,90 @@ namespace SIL.DblBundle
 			{
 				throw new ApplicationException(
 					String.Format(LocalizationManager.GetString("DblBundle.NotTextReleaseBundle",
-						"This metadata in this bundle indicates that it is of type \"{0}\". Only Text Release Bundles are currently supported."),
+							"This metadata in this bundle indicates that it is of type \"{0}\". Only Text Release Bundles are currently supported."),
 						dblMetadata.Type));
 			}
 
 			return dblMetadata;
 		}
+
+		private string ConvertMetadataIfNecessary(string metadataPath)
+		{
+			decimal? version = GetVersionFromMetadata(metadataPath);
+			if (version == null)
+			{
+				// If we are unable to determine the version number, we store that information.
+				// We'll still attempt to convert and read the metadata.
+				// If we hit an exception during that attempt, we will display this message to the user rather than the specific exception.
+				m_loadException =
+					new ApplicationException(
+						"Unable to determine the DBL metadata version. You may need a newer version of the application to read this bundle.");
+			}
+			else if (version < 2)
+			{
+				return metadataPath;
+			}
+			else if (version > 2.1M)
+			{
+				// If the version number is higher than we know how to handle, we store that information.
+				// We'll still attempt to convert and read the metadata.
+				// If we hit an exception during that attempt, we will display this message to the user rather than the specific exception.
+				m_loadException =
+					new ApplicationException(
+						string.Format("The metadata version for this DBL bundle is {0} which is greater than the highest known version (2.1). " +
+									"You may need a new version of the application to read this bundle.", version));
+			}
+			return ConvertMetadata(metadataPath, (decimal)version);
+		}
+
+		private string ConvertMetadata(string metadataPath, decimal version)
+		{
+			using (var convertedMetadata = TempFile.WithExtension("xml"))
+			{
+				var myXslTrans = new XslCompiledTransform();
+				switch (version)
+				{
+					case 2.0M:
+						myXslTrans.Load(new XmlTextReader(new StringReader(Resources.text_2_0_to_1_5_xsl)));
+						break;
+					default:
+						myXslTrans.Load(new XmlTextReader(new StringReader(Resources.text_2_1_to_1_5_xsl)));
+						break;
+				}
+				myXslTrans.Transform(metadataPath, convertedMetadata.Path);
+
+				convertedMetadata.Detach();
+				return convertedMetadata.Path;
+			}
+		}
+
+		/// <summary>
+		/// Previous to metadata version 2, the version was stored in the typeVersion attribute.
+		/// For version 2, it is stored in the version attribute.
+		/// Here's hoping they don't move it again in version 3...
+		/// </summary>
+		/// <param name="metadataPath"></param>
+		/// <returns></returns>
+		private decimal? GetVersionFromMetadata(string metadataPath)
+		{
+			XmlDocument doc = new XmlDocument();
+			doc.Load(metadataPath);
+			string versionStr = null;
+			var versionAttr = doc.SelectSingleNode("/DBLMetadata/@version");
+			if (versionAttr != null)
+				versionStr = versionAttr.Value;
+			if (string.IsNullOrWhiteSpace(versionStr))
+			{
+				versionAttr = doc.SelectSingleNode("/DBLMetadata/@typeVersion");
+				if (versionAttr != null)
+					versionStr = versionAttr.Value;
+			}
+			decimal version;
+			if (Decimal.TryParse(versionStr, out version))
+				return version;
+			return null;
+		}
+
 		#endregion
 
 		#region IDisposable Members
